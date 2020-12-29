@@ -18,26 +18,36 @@
 package bisq.core.api;
 
 import bisq.core.api.model.AddressBalanceInfo;
+import bisq.core.api.model.BalancesInfo;
+import bisq.core.api.model.TxFeeRateInfo;
+import bisq.core.btc.wallet.TxBroadcaster;
 import bisq.core.monetary.Price;
 import bisq.core.offer.Offer;
 import bisq.core.offer.OfferPayload;
 import bisq.core.payment.PaymentAccount;
+import bisq.core.payment.payload.PaymentMethod;
 import bisq.core.trade.Trade;
 import bisq.core.trade.statistics.TradeStatistics3;
 import bisq.core.trade.statistics.TradeStatisticsManager;
 
 import bisq.common.app.Version;
+import bisq.common.config.Config;
+import bisq.common.handlers.ResultHandler;
 
 import org.bitcoinj.core.Coin;
+import org.bitcoinj.core.Transaction;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
+
+import com.google.common.util.concurrent.FutureCallback;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -48,6 +58,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class CoreApi {
 
+    @Getter
+    private final Config config;
     private final CoreDisputeAgentsService coreDisputeAgentsService;
     private final CoreOffersService coreOffersService;
     private final CorePaymentAccountsService paymentAccountsService;
@@ -57,13 +69,15 @@ public class CoreApi {
     private final TradeStatisticsManager tradeStatisticsManager;
 
     @Inject
-    public CoreApi(CoreDisputeAgentsService coreDisputeAgentsService,
+    public CoreApi(Config config,
+                   CoreDisputeAgentsService coreDisputeAgentsService,
                    CoreOffersService coreOffersService,
                    CorePaymentAccountsService paymentAccountsService,
                    CorePriceService corePriceService,
                    CoreTradesService coreTradesService,
                    CoreWalletsService walletsService,
                    TradeStatisticsManager tradeStatisticsManager) {
+        this.config = config;
         this.coreDisputeAgentsService = coreDisputeAgentsService;
         this.coreOffersService = coreOffersService;
         this.paymentAccountsService = paymentAccountsService;
@@ -107,6 +121,7 @@ public class CoreApi {
                                    long minAmountAsLong,
                                    double buyerSecurityDeposit,
                                    String paymentAccountId,
+                                   String makerFeeCurrencyCode,
                                    Consumer<Offer> resultHandler) {
         coreOffersService.createAndPlaceOffer(currencyCode,
                 directionAsString,
@@ -117,6 +132,7 @@ public class CoreApi {
                 minAmountAsLong,
                 buyerSecurityDeposit,
                 paymentAccountId,
+                makerFeeCurrencyCode,
                 resultHandler);
     }
 
@@ -150,18 +166,20 @@ public class CoreApi {
     // PaymentAccounts
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    public void createPaymentAccount(String paymentMethodId,
-                                     String accountName,
-                                     String accountNumber,
-                                     String currencyCode) {
-        paymentAccountsService.createPaymentAccount(paymentMethodId,
-                accountName,
-                accountNumber,
-                currencyCode);
+    public PaymentAccount createPaymentAccount(String jsonString) {
+        return paymentAccountsService.createPaymentAccount(jsonString);
     }
 
     public Set<PaymentAccount> getPaymentAccounts() {
         return paymentAccountsService.getPaymentAccounts();
+    }
+
+    public List<PaymentMethod> getFiatPaymentMethods() {
+        return paymentAccountsService.getFiatPaymentMethods();
+    }
+
+    public String getPaymentAccountForm(String paymentMethodId) {
+        return paymentAccountsService.getPaymentAccountFormAsString(paymentMethodId);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -178,10 +196,12 @@ public class CoreApi {
 
     public void takeOffer(String offerId,
                           String paymentAccountId,
+                          String takerFeeCurrencyCode,
                           Consumer<Trade> resultHandler) {
         Offer offer = coreOffersService.getOffer(offerId);
         coreTradesService.takeOffer(offer,
                 paymentAccountId,
+                takerFeeCurrencyCode,
                 resultHandler);
     }
 
@@ -197,8 +217,8 @@ public class CoreApi {
         coreTradesService.keepFunds(tradeId);
     }
 
-    public void withdrawFunds(String tradeId, String address) {
-        coreTradesService.withdrawFunds(tradeId, address);
+    public void withdrawFunds(String tradeId, String address, String memo) {
+        coreTradesService.withdrawFunds(tradeId, address, memo);
     }
 
     public Trade getTrade(String tradeId) {
@@ -213,8 +233,8 @@ public class CoreApi {
     // Wallets
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    public long getAvailableBalance() {
-        return walletsService.getAvailableBalance();
+    public BalancesInfo getBalances(String currencyCode) {
+        return walletsService.getBalances(currencyCode);
     }
 
     public long getAddressBalance(String addressString) {
@@ -227,6 +247,46 @@ public class CoreApi {
 
     public List<AddressBalanceInfo> getFundingAddresses() {
         return walletsService.getFundingAddresses();
+    }
+
+    public String getUnusedBsqAddress() {
+        return walletsService.getUnusedBsqAddress();
+    }
+
+    public void sendBsq(String address,
+                        String amount,
+                        String txFeeRate,
+                        TxBroadcaster.Callback callback) {
+        walletsService.sendBsq(address, amount, txFeeRate, callback);
+    }
+
+    public void sendBtc(String address,
+                        String amount,
+                        String txFeeRate,
+                        String memo,
+                        FutureCallback<Transaction> callback) {
+        walletsService.sendBtc(address, amount, txFeeRate, memo, callback);
+    }
+
+    public void getTxFeeRate(ResultHandler resultHandler) {
+        walletsService.getTxFeeRate(resultHandler);
+    }
+
+    public void setTxFeeRatePreference(long txFeeRate,
+                                       ResultHandler resultHandler) {
+        walletsService.setTxFeeRatePreference(txFeeRate, resultHandler);
+    }
+
+    public void unsetTxFeeRatePreference(ResultHandler resultHandler) {
+        walletsService.unsetTxFeeRatePreference(resultHandler);
+    }
+
+    public TxFeeRateInfo getMostRecentTxFeeRateInfo() {
+        return walletsService.getMostRecentTxFeeRateInfo();
+    }
+
+    public Transaction getTransaction(String txId) {
+        return walletsService.getTransaction(txId);
     }
 
     public void setWalletPassword(String password, String newPassword) {

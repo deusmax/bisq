@@ -81,6 +81,7 @@ message CreateOfferRequest {
     uint64 minAmount = 7;
     double buyerSecurityDeposit = 8;
     string paymentAccountId = 9;
+    string makerFeeCurrencyCode = 10;
 }
 
 message CreateOfferReply {
@@ -105,13 +106,14 @@ message OfferInfo {
     uint64 volume = 8;
     uint64 minVolume = 9;
     uint64 buyerSecurityDeposit = 10;
-    string paymentAccountId = 11;
-    string paymentMethodId = 12;
-    string paymentMethodShortName = 13;
-    string baseCurrencyCode = 14;
-    string counterCurrencyCode = 15;
-    uint64 date = 16;
-    string state = 17;
+    bool isCurrencyForMakerFeeBtc = 11;
+    string paymentAccountId = 12;
+    string paymentMethodId = 13;
+    string paymentMethodShortName = 14;
+    string baseCurrencyCode = 15;
+    string counterCurrencyCode = 16;
+    uint64 date = 17;
+    string state = 18;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -123,17 +125,18 @@ service PaymentAccounts {
     }
     rpc GetPaymentAccounts (GetPaymentAccountsRequest) returns (GetPaymentAccountsReply) {
     }
+    rpc GetPaymentMethods (GetPaymentMethodsRequest) returns (GetPaymentMethodsReply) {
+    }
+    rpc GetPaymentAccountForm (GetPaymentAccountFormRequest) returns (GetPaymentAccountFormReply) {
+    }
 }
 
 message CreatePaymentAccountRequest {
-    string paymentMethodId = 1;
-    string accountName = 2;
-    string accountNumber = 3;
-    // TODO  Support all currencies. Maybe add a repeated and if only one is used its a singletonList.
-    string currencyCode = 4;
+    string paymentAccountForm = 1;
 }
 
 message CreatePaymentAccountReply {
+    PaymentAccount paymentAccount = 1;
 }
 
 message GetPaymentAccountsRequest {
@@ -141,6 +144,21 @@ message GetPaymentAccountsRequest {
 
 message GetPaymentAccountsReply {
     repeated PaymentAccount paymentAccounts = 1;
+}
+
+message GetPaymentMethodsRequest {
+}
+
+message GetPaymentMethodsReply {
+    repeated PaymentMethod paymentMethods = 1;
+}
+
+message GetPaymentAccountFormRequest {
+    string paymentMethodId = 1;
+}
+
+message GetPaymentAccountFormReply {
+    string paymentAccountFormJson = 1;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -198,6 +216,7 @@ service Trades {
 message TakeOfferRequest {
     string offerId = 1;
     string paymentAccountId = 2;
+    string takerFeeCurrencyCode = 3;
 }
 
 message TakeOfferReply {
@@ -236,6 +255,7 @@ message KeepFundsReply {
 message WithdrawFundsRequest {
     string tradeId = 1;
     string address = 2;
+    string memo = 3;
 }
 
 message WithdrawFundsReply {
@@ -269,13 +289,48 @@ message TradeInfo {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// Transactions
+///////////////////////////////////////////////////////////////////////////////////////////
+
+message TxFeeRateInfo {
+    bool useCustomTxFeeRate = 1;
+    uint64 customTxFeeRate = 2;
+    uint64 feeServiceRate = 3;
+    uint64 lastFeeServiceRequestTs = 4;
+}
+
+message TxInfo {
+    string txId = 1;
+    uint64 inputSum = 2;
+    uint64 outputSum = 3;
+    uint64 fee = 4;
+    int32 size = 5;
+    bool isPending = 6;
+    string memo = 7;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // Wallets
 ///////////////////////////////////////////////////////////////////////////////////////////
 
 service Wallets {
-    rpc GetBalance (GetBalanceRequest) returns (GetBalanceReply) {
+    rpc GetBalances (GetBalancesRequest) returns (GetBalancesReply) {
     }
     rpc GetAddressBalance (GetAddressBalanceRequest) returns (GetAddressBalanceReply) {
+    }
+    rpc GetUnusedBsqAddress (GetUnusedBsqAddressRequest) returns (GetUnusedBsqAddressReply) {
+    }
+    rpc SendBsq (SendBsqRequest) returns (SendBsqReply) {
+    }
+    rpc SendBtc (SendBtcRequest) returns (SendBtcReply) {
+    }
+    rpc GetTxFeeRate (GetTxFeeRateRequest) returns (GetTxFeeRateReply) {
+    }
+    rpc SetTxFeeRatePreference (SetTxFeeRatePreferenceRequest) returns (SetTxFeeRatePreferenceReply) {
+    }
+    rpc UnsetTxFeeRatePreference (UnsetTxFeeRatePreferenceRequest) returns (UnsetTxFeeRatePreferenceReply) {
+    }
+    rpc GetTransaction (GetTransactionRequest) returns (GetTransactionReply) {
     }
     rpc GetFundingAddresses (GetFundingAddressesRequest) returns (GetFundingAddressesReply) {
     }
@@ -289,11 +344,12 @@ service Wallets {
     }
 }
 
-message GetBalanceRequest {
+message GetBalancesRequest {
+    string currencyCode = 1;
 }
 
-message GetBalanceReply {
-    uint64 balance = 1;
+message GetBalancesReply {
+    BalancesInfo balances = 1;
 }
 
 message GetAddressBalanceRequest {
@@ -302,6 +358,64 @@ message GetAddressBalanceRequest {
 
 message GetAddressBalanceReply {
     AddressBalanceInfo addressBalanceInfo = 1;
+}
+
+message GetUnusedBsqAddressRequest {
+}
+
+message GetUnusedBsqAddressReply {
+     string address = 1;
+}
+
+message SendBsqRequest {
+    string address = 1;
+    string amount = 2;
+    string txFeeRate = 3;
+}
+
+message SendBsqReply {
+    TxInfo txInfo = 1;
+}
+
+message SendBtcRequest {
+    string address = 1;
+    string amount = 2;
+    string txFeeRate = 3;
+    string memo = 4;
+}
+
+message SendBtcReply {
+    TxInfo txInfo = 1;
+}
+
+message GetTxFeeRateRequest {
+}
+
+message GetTxFeeRateReply {
+    TxFeeRateInfo txFeeRateInfo = 1;
+}
+
+message SetTxFeeRatePreferenceRequest {
+    uint64 txFeeRatePreference = 1;
+}
+
+message SetTxFeeRatePreferenceReply {
+    TxFeeRateInfo txFeeRateInfo = 1;
+}
+
+message UnsetTxFeeRatePreferenceRequest {
+}
+
+message UnsetTxFeeRatePreferenceReply {
+    TxFeeRateInfo txFeeRateInfo = 1;
+}
+
+message GetTransactionRequest {
+    string txId = 1;
+}
+
+message GetTransactionReply {
+    TxInfo txInfo = 1;
 }
 
 message GetFundingAddressesRequest {
@@ -338,6 +452,30 @@ message UnlockWalletRequest {
 }
 
 message UnlockWalletReply {
+}
+
+message BalancesInfo {
+    // Field names are shortened for readability's sake, i.e.,
+    // balancesInfo.getBtc().getAvailableBalance() is cleaner than
+    // balancesInfo.getBtcBalanceInfo().getAvailableBalance().
+    BsqBalanceInfo bsq = 1;
+    BtcBalanceInfo btc = 2;
+}
+
+message BsqBalanceInfo {
+    uint64 availableConfirmedBalance = 1;
+    uint64 unverifiedBalance = 2;
+    uint64 unconfirmedChangeBalance = 3;
+    uint64 lockedForVotingBalance = 4;
+    uint64 lockupBondsBalance = 5;
+    uint64 unlockingBondsBalance = 6;
+}
+
+message BtcBalanceInfo {
+    uint64 availableBalance = 1;
+    uint64 reservedBalance = 2;
+    uint64 totalAvailableBalance = 3;
+    uint64 lockedBalance = 4;
 }
 
 message AddressBalanceInfo {

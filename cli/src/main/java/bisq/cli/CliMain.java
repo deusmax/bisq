@@ -23,42 +23,61 @@ import bisq.proto.grpc.ConfirmPaymentStartedRequest;
 import bisq.proto.grpc.CreateOfferRequest;
 import bisq.proto.grpc.CreatePaymentAccountRequest;
 import bisq.proto.grpc.GetAddressBalanceRequest;
-import bisq.proto.grpc.GetBalanceRequest;
+import bisq.proto.grpc.GetBalancesRequest;
 import bisq.proto.grpc.GetFundingAddressesRequest;
 import bisq.proto.grpc.GetOfferRequest;
 import bisq.proto.grpc.GetOffersRequest;
+import bisq.proto.grpc.GetPaymentAccountFormRequest;
 import bisq.proto.grpc.GetPaymentAccountsRequest;
+import bisq.proto.grpc.GetPaymentMethodsRequest;
 import bisq.proto.grpc.GetTradeRequest;
+import bisq.proto.grpc.GetTransactionRequest;
+import bisq.proto.grpc.GetTxFeeRateRequest;
+import bisq.proto.grpc.GetUnusedBsqAddressRequest;
 import bisq.proto.grpc.GetVersionRequest;
 import bisq.proto.grpc.KeepFundsRequest;
 import bisq.proto.grpc.LockWalletRequest;
+import bisq.proto.grpc.OfferInfo;
 import bisq.proto.grpc.RegisterDisputeAgentRequest;
 import bisq.proto.grpc.RemoveWalletPasswordRequest;
+import bisq.proto.grpc.SendBsqRequest;
+import bisq.proto.grpc.SendBtcRequest;
+import bisq.proto.grpc.SetTxFeeRatePreferenceRequest;
 import bisq.proto.grpc.SetWalletPasswordRequest;
 import bisq.proto.grpc.TakeOfferRequest;
+import bisq.proto.grpc.TxInfo;
 import bisq.proto.grpc.UnlockWalletRequest;
+import bisq.proto.grpc.UnsetTxFeeRatePreferenceRequest;
 import bisq.proto.grpc.WithdrawFundsRequest;
+
+import protobuf.PaymentAccount;
 
 import io.grpc.StatusRuntimeException;
 
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.io.PrintWriter;
 
 import java.math.BigDecimal;
 
+import java.util.Date;
 import java.util.List;
 
 import lombok.extern.slf4j.Slf4j;
 
-import static bisq.cli.CurrencyFormat.formatSatoshis;
+import static bisq.cli.CurrencyFormat.formatTxFeeRateInfo;
 import static bisq.cli.CurrencyFormat.toSatoshis;
 import static bisq.cli.NegativeNumberOptions.hasNegativeNumberOptions;
-import static bisq.cli.TableFormat.formatAddressBalanceTbl;
-import static bisq.cli.TableFormat.formatOfferTable;
-import static bisq.cli.TableFormat.formatPaymentAcctTbl;
+import static bisq.cli.TableFormat.*;
 import static java.lang.String.format;
 import static java.lang.System.err;
 import static java.lang.System.exit;
@@ -84,12 +103,21 @@ public class CliMain {
         confirmpaymentreceived,
         keepfunds,
         withdrawfunds,
+        getpaymentmethods,
+        getpaymentacctform,
         createpaymentacct,
         getpaymentaccts,
         getversion,
         getbalance,
         getaddressbalance,
         getfundingaddresses,
+        getunusedbsqaddress,
+        sendbsq,
+        sendbtc,
+        gettxfeerate,
+        settxfeerate,
+        unsettxfeerate,
+        gettransaction,
         lockwallet,
         unlockwallet,
         removewalletpassword,
@@ -183,10 +211,25 @@ public class CliMain {
                     return;
                 }
                 case getbalance: {
-                    var request = GetBalanceRequest.newBuilder().build();
-                    var reply = walletsService.getBalance(request);
-                    var btcBalance = formatSatoshis(reply.getBalance());
-                    out.println(btcBalance);
+                    var currencyCode = nonOptionArgs.size() == 2
+                            ? nonOptionArgs.get(1)
+                            : "";
+                    var request = GetBalancesRequest.newBuilder()
+                            .setCurrencyCode(currencyCode)
+                            .build();
+                    var reply = walletsService.getBalances(request);
+                    switch (currencyCode.toUpperCase()) {
+                        case "BSQ":
+                            out.println(formatBsqBalanceInfoTbl(reply.getBalances().getBsq()));
+                            break;
+                        case "BTC":
+                            out.println(formatBtcBalanceInfoTbl(reply.getBalances().getBtc()));
+                            break;
+                        case "":
+                        default:
+                            out.println(formatBalancesTbls(reply.getBalances()));
+                            break;
+                    }
                     return;
                 }
                 case getaddressbalance: {
@@ -205,11 +248,116 @@ public class CliMain {
                     out.println(formatAddressBalanceTbl(reply.getAddressBalanceInfoList()));
                     return;
                 }
+                case getunusedbsqaddress: {
+                    var request = GetUnusedBsqAddressRequest.newBuilder().build();
+                    var reply = walletsService.getUnusedBsqAddress(request);
+                    out.println(reply.getAddress());
+                    return;
+                }
+                case sendbsq: {
+                    if (nonOptionArgs.size() < 2)
+                        throw new IllegalArgumentException("no bsq address specified");
+
+                    var address = nonOptionArgs.get(1);
+
+                    if (nonOptionArgs.size() < 3)
+                        throw new IllegalArgumentException("no bsq amount specified");
+
+                    var amount = nonOptionArgs.get(2);
+                    verifyStringIsValidDecimal(amount);
+
+                    var txFeeRate = nonOptionArgs.size() == 4 ? nonOptionArgs.get(3) : "";
+                    if (!txFeeRate.isEmpty())
+                        verifyStringIsValidLong(txFeeRate);
+
+                    var request = SendBsqRequest.newBuilder()
+                            .setAddress(address)
+                            .setAmount(amount)
+                            .setTxFeeRate(txFeeRate)
+                            .build();
+                    var reply = walletsService.sendBsq(request);
+                    TxInfo txInfo = reply.getTxInfo();
+                    out.printf("%s bsq sent to %s in tx %s%n",
+                            amount,
+                            address,
+                            txInfo.getTxId());
+                    return;
+                }
+                case sendbtc: {
+                    if (nonOptionArgs.size() < 2)
+                        throw new IllegalArgumentException("no btc address specified");
+
+                    var address = nonOptionArgs.get(1);
+
+                    if (nonOptionArgs.size() < 3)
+                        throw new IllegalArgumentException("no btc amount specified");
+
+                    var amount = nonOptionArgs.get(2);
+                    verifyStringIsValidDecimal(amount);
+
+                    // TODO Find a better way to handle the two optional parameters.
+                    var txFeeRate = nonOptionArgs.size() >= 4 ? nonOptionArgs.get(3) : "";
+                    if (!txFeeRate.isEmpty())
+                        verifyStringIsValidLong(txFeeRate);
+
+                    var memo = nonOptionArgs.size() == 5 ? nonOptionArgs.get(4) : "";
+
+                    var request = SendBtcRequest.newBuilder()
+                            .setAddress(address)
+                            .setAmount(amount)
+                            .setTxFeeRate(txFeeRate)
+                            .setMemo(memo)
+                            .build();
+                    var reply = walletsService.sendBtc(request);
+                    TxInfo txInfo = reply.getTxInfo();
+                    out.printf("%s btc sent to %s in tx %s%n",
+                            amount,
+                            address,
+                            txInfo.getTxId());
+                    return;
+                }
+                case gettxfeerate: {
+                    var request = GetTxFeeRateRequest.newBuilder().build();
+                    var reply = walletsService.getTxFeeRate(request);
+                    out.println(formatTxFeeRateInfo(reply.getTxFeeRateInfo()));
+                    return;
+                }
+                case settxfeerate: {
+                    if (nonOptionArgs.size() < 2)
+                        throw new IllegalArgumentException("no tx fee rate specified");
+
+                    var txFeeRate = toLong(nonOptionArgs.get(2));
+                    var request = SetTxFeeRatePreferenceRequest.newBuilder()
+                            .setTxFeeRatePreference(txFeeRate)
+                            .build();
+                    var reply = walletsService.setTxFeeRatePreference(request);
+                    out.println(formatTxFeeRateInfo(reply.getTxFeeRateInfo()));
+                    return;
+                }
+                case unsettxfeerate: {
+                    var request = UnsetTxFeeRatePreferenceRequest.newBuilder().build();
+                    var reply = walletsService.unsetTxFeeRatePreference(request);
+                    out.println(formatTxFeeRateInfo(reply.getTxFeeRateInfo()));
+                    return;
+                }
+                case gettransaction: {
+                    if (nonOptionArgs.size() < 2)
+                        throw new IllegalArgumentException("no tx id specified");
+
+                    var txId = nonOptionArgs.get(1);
+                    var request = GetTransactionRequest.newBuilder()
+                            .setTxId(txId)
+                            .build();
+                    var reply = walletsService.getTransaction(request);
+                    out.println(TransactionFormat.format(reply.getTxInfo()));
+                    return;
+                }
                 case createoffer: {
                     if (nonOptionArgs.size() < 9)
                         throw new IllegalArgumentException("incorrect parameter count,"
                                 + " expecting payment acct id, buy | sell, currency code, amount, min amount,"
-                                + " use-market-based-price, fixed-price | mkt-price-margin, security-deposit");
+                                + " use-market-based-price, fixed-price | mkt-price-margin, security-deposit"
+                                + " [,maker-fee-currency-code = bsq|btc]");
 
                     var paymentAcctId = nonOptionArgs.get(1);
                     var direction = nonOptionArgs.get(2);
@@ -223,7 +371,11 @@ public class CliMain {
                         marketPriceMargin = new BigDecimal(nonOptionArgs.get(7));
                     else
                         fixedPrice = nonOptionArgs.get(7);
+
                     var securityDeposit = new BigDecimal(nonOptionArgs.get(8));
+                    var makerFeeCurrencyCode = nonOptionArgs.size() == 10
+                            ? nonOptionArgs.get(9)
+                            : "btc";
 
                     var request = CreateOfferRequest.newBuilder()
                             .setDirection(direction)
@@ -235,6 +387,7 @@ public class CliMain {
                             .setMarketPriceMargin(marketPriceMargin.doubleValue())
                             .setBuyerSecurityDeposit(securityDeposit.doubleValue())
                             .setPaymentAccountId(paymentAcctId)
+                            .setMakerFeeCurrencyCode(makerFeeCurrencyCode)
                             .build();
                     var reply = offersService.createOffer(request);
                     out.println(formatOfferTable(singletonList(reply.getOffer()), currencyCode));
@@ -278,26 +431,40 @@ public class CliMain {
                             .setCurrencyCode(currencyCode)
                             .build();
                     var reply = offersService.getOffers(request);
-                    out.println(formatOfferTable(reply.getOffersList(), currencyCode));
+
+                    List<OfferInfo> offers = reply.getOffersList();
+                    if (offers.isEmpty())
+                        out.printf("no %s %s offers found%n", direction, currencyCode);
+                    else
+                        out.println(formatOfferTable(reply.getOffersList(), currencyCode));
+
                     return;
                 }
                 case takeoffer: {
                     if (nonOptionArgs.size() < 3)
-                        throw new IllegalArgumentException("incorrect parameter count, expecting offer id, payment acct id");
+                        throw new IllegalArgumentException("incorrect parameter count, " +
+                                " expecting offer id, payment acct id [,taker fee currency code = bsq|btc]");
 
                     var offerId = nonOptionArgs.get(1);
                     var paymentAccountId = nonOptionArgs.get(2);
+                    var takerFeeCurrencyCode = nonOptionArgs.size() == 4
+                            ? nonOptionArgs.get(3)
+                            : "btc";
+
                     var request = TakeOfferRequest.newBuilder()
                             .setOfferId(offerId)
                             .setPaymentAccountId(paymentAccountId)
+                            .setTakerFeeCurrencyCode(takerFeeCurrencyCode)
                             .build();
                     var reply = tradesService.takeOffer(request);
-                    out.printf("trade '%s' successfully taken", reply.getTrade().getShortId());
+                    out.printf("trade %s successfully taken%n", reply.getTrade().getTradeId());
                     return;
                 }
                 case gettrade: {
+                    // TODO make short-id a valid argument?
                     if (nonOptionArgs.size() < 2)
-                        throw new IllegalArgumentException("incorrect parameter count, expecting trade id, [,showcontract = true|false]");
+                        throw new IllegalArgumentException("incorrect parameter count, "
+                                + " expecting trade id [,showcontract = true|false]");
 
                     var tradeId = nonOptionArgs.get(1);
                     var showContract = false;
@@ -323,7 +490,7 @@ public class CliMain {
                             .setTradeId(tradeId)
                             .build();
                     tradesService.confirmPaymentStarted(request);
-                    out.printf("trade '%s' payment started message sent", tradeId);
+                    out.printf("trade %s payment started message sent%n", tradeId);
                     return;
                 }
                 case confirmpaymentreceived: {
@@ -335,7 +502,7 @@ public class CliMain {
                             .setTradeId(tradeId)
                             .build();
                     tradesService.confirmPaymentReceived(request);
-                    out.printf("trade '%s' payment received message sent", tradeId);
+                    out.printf("trade %s payment received message sent%n", tradeId);
                     return;
                 }
                 case keepfunds: {
@@ -347,47 +514,90 @@ public class CliMain {
                             .setTradeId(tradeId)
                             .build();
                     tradesService.keepFunds(request);
-                    out.printf("funds from trade '%s' saved in bisq wallet", tradeId);
+                    out.printf("funds from trade %s saved in bisq wallet%n", tradeId);
                     return;
                 }
                 case withdrawfunds: {
                     if (nonOptionArgs.size() < 3)
-                        throw new IllegalArgumentException("incorrect parameter count, expecting trade id, bitcoin wallet address");
+                        throw new IllegalArgumentException("incorrect parameter count, "
+                                + " expecting trade id, bitcoin wallet address [,\"memo\"]");
 
                     var tradeId = nonOptionArgs.get(1);
                     var address = nonOptionArgs.get(2);
+                    // A multi-word memo must be double quoted.
+                    var memo = nonOptionArgs.size() == 4
+                            ? nonOptionArgs.get(3)
+                            : "";
                     var request = WithdrawFundsRequest.newBuilder()
                             .setTradeId(tradeId)
                             .setAddress(address)
+                            .setMemo(memo)
                             .build();
                     tradesService.withdrawFunds(request);
-                    out.printf("funds from trade '%s' sent to btc address '%s'", tradeId, address);
+                    out.printf("trade %s funds sent to btc address %s%n", tradeId, address);
+                    return;
+                }
+                case getpaymentmethods: {
+                    var request = GetPaymentMethodsRequest.newBuilder().build();
+                    var reply = paymentAccountsService.getPaymentMethods(request);
+                    reply.getPaymentMethodsList().forEach(p -> out.println(p.getId()));
+                    return;
+                }
+                case getpaymentacctform: {
+                    if (nonOptionArgs.size() < 2)
+                        throw new IllegalArgumentException("incorrect parameter count, expecting payment method id");
+
+                    var paymentMethodId = nonOptionArgs.get(1);
+                    var request = GetPaymentAccountFormRequest.newBuilder()
+                            .setPaymentMethodId(paymentMethodId)
+                            .build();
+                    String jsonString = paymentAccountsService.getPaymentAccountForm(request)
+                            .getPaymentAccountFormJson();
+                    File jsonFile = saveFileToDisk(paymentMethodId.toLowerCase(),
+                            ".json",
+                            jsonString);
+                    out.printf("payment account form %s%nsaved to %s%n",
+                            jsonString, jsonFile.getAbsolutePath());
+                    out.println("Edit the file, and use as the argument to a 'createpaymentacct' command.");
                     return;
                 }
                 case createpaymentacct: {
-                    if (nonOptionArgs.size() < 5)
+                    if (nonOptionArgs.size() < 2)
                         throw new IllegalArgumentException(
-                                "incorrect parameter count, expecting payment method id,"
-                                        + " account name, account number, currency code");
+                                "incorrect parameter count, expecting path to payment account form");
 
-                    var paymentMethodId = nonOptionArgs.get(1);
-                    var accountName = nonOptionArgs.get(2);
-                    var accountNumber = nonOptionArgs.get(3);
-                    var currencyCode = nonOptionArgs.get(4);
+                    var paymentAccountFormPath = Paths.get(nonOptionArgs.get(1));
+                    if (!paymentAccountFormPath.toFile().exists())
+                        throw new IllegalStateException(
+                                format("payment account form '%s' could not be found",
+                                        paymentAccountFormPath.toString()));
+
+                    String jsonString;
+                    try {
+                        jsonString = new String(Files.readAllBytes(paymentAccountFormPath));
+                    } catch (IOException e) {
+                        throw new IllegalStateException(
+                                format("could not read %s", paymentAccountFormPath.toString()));
+                    }
 
                     var request = CreatePaymentAccountRequest.newBuilder()
-                            .setPaymentMethodId(paymentMethodId)
-                            .setAccountName(accountName)
-                            .setAccountNumber(accountNumber)
-                            .setCurrencyCode(currencyCode).build();
-                    paymentAccountsService.createPaymentAccount(request);
-                    out.printf("payment account %s saved", accountName);
+                            .setPaymentAccountForm(jsonString)
+                            .build();
+                    var reply = paymentAccountsService.createPaymentAccount(request);
+                    out.println("payment account saved");
+                    out.println(formatPaymentAcctTbl(singletonList(reply.getPaymentAccount())));
                     return;
                 }
                 case getpaymentaccts: {
                     var request = GetPaymentAccountsRequest.newBuilder().build();
                     var reply = paymentAccountsService.getPaymentAccounts(request);
-                    out.println(formatPaymentAcctTbl(reply.getPaymentAccountsList()));
+
+                    List<PaymentAccount> paymentAccounts = reply.getPaymentAccountsList();
+                    if (paymentAccounts.size() > 0)
+                        out.println(formatPaymentAcctTbl(paymentAccounts));
+                    else
+                        out.println("no payment accounts are saved");
+
                     return;
                 }
                 case lockwallet: {
@@ -403,12 +613,7 @@ public class CliMain {
                     if (nonOptionArgs.size() < 3)
                         throw new IllegalArgumentException("no unlock timeout specified");
 
-                    long timeout;
-                    try {
-                        timeout = Long.parseLong(nonOptionArgs.get(2));
-                    } catch (NumberFormatException e) {
-                        throw new IllegalArgumentException(format("'%s' is not a number", nonOptionArgs.get(2)));
-                    }
+                    var timeout = toLong(nonOptionArgs.get(2));
                     var request = UnlockWalletRequest.newBuilder()
                             .setPassword(nonOptionArgs.get(1))
                             .setTimeout(timeout).build();
@@ -470,6 +675,50 @@ public class CliMain {
         return Method.valueOf(methodName.toLowerCase());
     }
 
+    private static void verifyStringIsValidDecimal(String param) {
+        try {
+            Double.parseDouble(param);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(format("'%s' is not a number", param));
+        }
+    }
+
+    private static void verifyStringIsValidLong(String param) {
+        try {
+            Long.parseLong(param);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(format("'%s' is not a number", param));
+        }
+    }
+
+    private static long toLong(String param) {
+        try {
+            return Long.parseLong(param);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(format("'%s' is not a number", param));
+        }
+    }
+
+    private static File saveFileToDisk(String prefix,
+                                       @SuppressWarnings("SameParameterValue") String suffix,
+                                       String text) {
+        String timestamp = Long.toUnsignedString(new Date().getTime());
+        String relativeFileName = prefix + "_" + timestamp + suffix;
+        try {
+            Path path = Paths.get(relativeFileName);
+            if (!Files.exists(path)) {
+                try (PrintWriter out = new PrintWriter(path.toString())) {
+                    out.println(text);
+                }
+                return path.toAbsolutePath().toFile();
+            } else {
+                throw new IllegalStateException(format("could not overwrite existing file '%s'", relativeFileName));
+            }
+        } catch (FileNotFoundException e) {
+            throw new IllegalStateException(format("could not create file '%s'", relativeFileName));
+        }
+    }
+
     private static void printHelp(OptionParser parser, PrintStream stream) {
         try {
             stream.println("Bisq RPC Client");
@@ -482,23 +731,33 @@ public class CliMain {
             stream.format(rowFormat, "Method", "Params", "Description");
             stream.format(rowFormat, "------", "------", "------------");
             stream.format(rowFormat, "getversion", "", "Get server version");
-            stream.format(rowFormat, "getbalance", "", "Get server wallet balance");
+            stream.format(rowFormat, "getbalance [,currency code = bsq|btc]", "", "Get server wallet balances");
             stream.format(rowFormat, "getaddressbalance", "address", "Get server wallet address balance");
             stream.format(rowFormat, "getfundingaddresses", "", "Get BTC funding addresses");
+            stream.format(rowFormat, "getunusedbsqaddress", "", "Get unused BSQ address");
+            stream.format(rowFormat, "sendbsq", "address, amount [,tx fee rate (sats/byte)]", "Send BSQ");
+            stream.format(rowFormat, "sendbtc", "address, amount [,tx fee rate (sats/byte), \"memo\"]", "Send BTC");
+            stream.format(rowFormat, "gettxfeerate", "", "Get current tx fee rate in sats/byte");
+            stream.format(rowFormat, "settxfeerate", "satoshis (per byte)", "Set custom tx fee rate in sats/byte");
+            stream.format(rowFormat, "unsettxfeerate", "", "Unset custom tx fee rate");
+            stream.format(rowFormat, "gettransaction", "transaction id", "Get transaction with id");
             stream.format(rowFormat, "createoffer", "payment acct id, buy | sell, currency code, \\", "Create and place an offer");
             stream.format(rowFormat, "", "amount (btc), min amount, use mkt based price, \\", "");
-            stream.format(rowFormat, "", "fixed price (btc) | mkt price margin (%), \\", "");
-            stream.format(rowFormat, "", "security deposit (%)", "");
+            stream.format(rowFormat, "", "fixed price (btc) | mkt price margin (%), security deposit (%) \\", "");
+            stream.format(rowFormat, "", "[,maker fee currency code = bsq|btc]", "");
             stream.format(rowFormat, "canceloffer", "offer id", "Cancel offer with id");
             stream.format(rowFormat, "getoffer", "offer id", "Get current offer with id");
             stream.format(rowFormat, "getoffers", "buy | sell, currency code", "Get current offers");
-            stream.format(rowFormat, "takeoffer", "offer id", "Take offer with id");
-            stream.format(rowFormat, "gettrade", "trade id [,showcontract]", "Get trade summary or full contract");
+            stream.format(rowFormat, "takeoffer", "offer id, [,taker fee currency code = bsq|btc]", "Take offer with id");
+            stream.format(rowFormat, "gettrade", "trade id [,showcontract = true|false]", "Get trade summary or full contract");
             stream.format(rowFormat, "confirmpaymentstarted", "trade id", "Confirm payment started");
             stream.format(rowFormat, "confirmpaymentreceived", "trade id", "Confirm payment received");
             stream.format(rowFormat, "keepfunds", "trade id", "Keep received funds in Bisq wallet");
-            stream.format(rowFormat, "withdrawfunds", "trade id, bitcoin wallet address", "Withdraw received funds to external wallet address");
-            stream.format(rowFormat, "createpaymentacct", "account name, account number, currency code", "Create PerfectMoney dummy account");
+            stream.format(rowFormat, "withdrawfunds", "trade id, bitcoin wallet address  [,\"memo\"]",
+                    "Withdraw received funds to external wallet address");
+            stream.format(rowFormat, "getpaymentmethods", "", "Get list of supported payment account method ids");
+            stream.format(rowFormat, "getpaymentacctform", "payment method id", "Get a new payment account form");
+            stream.format(rowFormat, "createpaymentacct", "path to payment account form", "Create a new payment account");
             stream.format(rowFormat, "getpaymentaccts", "", "Get user payment accounts");
             stream.format(rowFormat, "lockwallet", "", "Remove wallet password from memory, locking the wallet");
             stream.format(rowFormat, "unlockwallet", "password timeout",

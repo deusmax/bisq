@@ -19,6 +19,7 @@ package bisq.desktop.main.overlays.windows;
 
 import bisq.desktop.components.BisqTextArea;
 import bisq.desktop.components.TextFieldWithCopyIcon;
+import bisq.desktop.components.TxIdTextField;
 import bisq.desktop.main.MainView;
 import bisq.desktop.main.overlays.Overlay;
 import bisq.desktop.util.DisplayUtils;
@@ -31,6 +32,7 @@ import bisq.core.locale.CurrencyUtil;
 import bisq.core.locale.Res;
 import bisq.core.offer.Offer;
 import bisq.core.payment.payload.PaymentAccountPayload;
+import bisq.core.support.dispute.agent.DisputeAgentLookupMap;
 import bisq.core.support.dispute.arbitration.ArbitrationManager;
 import bisq.core.trade.Contract;
 import bisq.core.trade.Trade;
@@ -285,9 +287,17 @@ public class TradeDetailsWindow extends Overlay<TradeDetailsWindow> {
         addLabelTxIdTextField(gridPane, ++rowIndex, Res.get("shared.makerFeeTxId"), offer.getOfferFeePaymentTxId());
         addLabelTxIdTextField(gridPane, ++rowIndex, Res.get("shared.takerFeeTxId"), trade.getTakerFeeTxId());
 
+        String depositTxId = trade.getDepositTxId();
         Transaction depositTx = trade.getDepositTx();
-        String depositTxString = depositTx != null ? depositTx.getTxId().toString() : null;
-        addLabelTxIdTextField(gridPane, ++rowIndex, Res.get("shared.depositTransactionId"), depositTxString);
+        String depositTxIdFromTx = depositTx != null ? depositTx.getTxId().toString() : null;
+        TxIdTextField depositTxIdTextField = addLabelTxIdTextField(gridPane, ++rowIndex,
+                Res.get("shared.depositTransactionId"), depositTxId).second;
+        if (depositTxId == null || !depositTxId.equals(depositTxIdFromTx)) {
+            depositTxIdTextField.getTextField().setId("address-text-field-error");
+            log.error("trade.getDepositTxId() and trade.getDepositTx().getTxId().toString() are not the same. " +
+                            "trade.getDepositTxId()={}, trade.getDepositTx().getTxId().toString()={}, depositTx={}",
+                    depositTxId, depositTxIdFromTx, depositTx);
+        }
 
         Transaction delayedPayoutTx = trade.getDelayedPayoutTx(btcWalletService);
         String delayedPayoutTxString = delayedPayoutTx != null ? delayedPayoutTx.getTxId().toString() : null;
@@ -320,7 +330,7 @@ public class TradeDetailsWindow extends Overlay<TradeDetailsWindow> {
         }
 
         Tuple3<Button, Button, HBox> tuple = add2ButtonsWithBox(gridPane, ++rowIndex,
-                Res.get("shared.viewContractAsJson"), Res.get("shared.close"), 15, false);
+                Res.get("tradeDetailsWindow.detailData"), Res.get("shared.close"), 15, false);
         Button viewContractButton = tuple.first;
         viewContractButton.setMaxWidth(Region.USE_COMPUTED_SIZE);
         Button closeButton = tuple.second;
@@ -335,15 +345,25 @@ public class TradeDetailsWindow extends Overlay<TradeDetailsWindow> {
             viewContractButton.setOnAction(e -> {
                 TextArea textArea = new BisqTextArea();
                 textArea.setText(trade.getContractAsJson());
-                String contractAsJson = trade.getContractAsJson();
-                contractAsJson += "\n\nBuyerMultiSigPubKeyHex: " + Utils.HEX.encode(contract.getBuyerMultiSigPubKey());
-                contractAsJson += "\nSellerMultiSigPubKeyHex: " + Utils.HEX.encode(contract.getSellerMultiSigPubKey());
+                String data = "Contract as json:\n";
+                data += trade.getContractAsJson();
+                data += "\n\nOther detail data:";
+                data += "\n\nBuyerMultiSigPubKeyHex: " + Utils.HEX.encode(contract.getBuyerMultiSigPubKey());
+                data += "\nSellerMultiSigPubKeyHex: " + Utils.HEX.encode(contract.getSellerMultiSigPubKey());
                 if (CurrencyUtil.isFiatCurrency(offer.getCurrencyCode())) {
-                    contractAsJson += "\nBuyersAccountAge: " + buyersAccountAge;
-                    contractAsJson += "\nSellersAccountAge: " + sellersAccountAge;
+                    data += "\n\nBuyersAccountAge: " + buyersAccountAge;
+                    data += "\nSellersAccountAge: " + sellersAccountAge;
                 }
 
-                textArea.setText(contractAsJson);
+                if (depositTx != null) {
+                    String depositTxAsHex = Utils.HEX.encode(depositTx.bitcoinSerialize(true));
+                    data += "\n\nRaw deposit transaction as hex:\n" + depositTxAsHex;
+                }
+
+                data += "\n\nSelected mediator: " + DisputeAgentLookupMap.getKeyBaseUserName(contract.getMediatorNodeAddress().getFullAddress());
+                data += "\nSelected arbitrator (refund agent): " + DisputeAgentLookupMap.getKeyBaseUserName(contract.getRefundAgentNodeAddress().getFullAddress());
+
+                textArea.setText(data);
                 textArea.setPrefHeight(50);
                 textArea.setEditable(false);
                 textArea.setWrapText(true);

@@ -35,8 +35,6 @@ import bisq.proto.grpc.TradesGrpc;
 import bisq.proto.grpc.WithdrawFundsReply;
 import bisq.proto.grpc.WithdrawFundsRequest;
 
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 
 import javax.inject.Inject;
@@ -49,10 +47,12 @@ import static bisq.core.api.model.TradeInfo.toTradeInfo;
 class GrpcTradesService extends TradesGrpc.TradesImplBase {
 
     private final CoreApi coreApi;
+    private final GrpcExceptionHandler exceptionHandler;
 
     @Inject
-    public GrpcTradesService(CoreApi coreApi) {
+    public GrpcTradesService(CoreApi coreApi, GrpcExceptionHandler exceptionHandler) {
         this.coreApi = coreApi;
+        this.exceptionHandler = exceptionHandler;
     }
 
     @Override
@@ -66,10 +66,8 @@ class GrpcTradesService extends TradesGrpc.TradesImplBase {
                     .build();
             responseObserver.onNext(reply);
             responseObserver.onCompleted();
-        } catch (IllegalStateException | IllegalArgumentException cause) {
-            var ex = new StatusRuntimeException(Status.UNKNOWN.withDescription(cause.getMessage()));
-            responseObserver.onError(ex);
-            throw ex;
+        } catch (Throwable cause) {
+            exceptionHandler.handleException(cause, responseObserver);
         }
     }
 
@@ -79,6 +77,7 @@ class GrpcTradesService extends TradesGrpc.TradesImplBase {
         try {
             coreApi.takeOffer(req.getOfferId(),
                     req.getPaymentAccountId(),
+                    req.getTakerFeeCurrencyCode(),
                     trade -> {
                         TradeInfo tradeInfo = toTradeInfo(trade);
                         var reply = TakeOfferReply.newBuilder()
@@ -87,10 +86,8 @@ class GrpcTradesService extends TradesGrpc.TradesImplBase {
                         responseObserver.onNext(reply);
                         responseObserver.onCompleted();
                     });
-        } catch (IllegalStateException | IllegalArgumentException cause) {
-            var ex = new StatusRuntimeException(Status.UNKNOWN.withDescription(cause.getMessage()));
-            responseObserver.onError(ex);
-            throw ex;
+        } catch (Throwable cause) {
+            exceptionHandler.handleException(cause, responseObserver);
         }
     }
 
@@ -102,10 +99,8 @@ class GrpcTradesService extends TradesGrpc.TradesImplBase {
             var reply = ConfirmPaymentStartedReply.newBuilder().build();
             responseObserver.onNext(reply);
             responseObserver.onCompleted();
-        } catch (IllegalStateException | IllegalArgumentException cause) {
-            var ex = new StatusRuntimeException(Status.UNKNOWN.withDescription(cause.getMessage()));
-            responseObserver.onError(ex);
-            throw ex;
+        } catch (Throwable cause) {
+            exceptionHandler.handleException(cause, responseObserver);
         }
     }
 
@@ -117,10 +112,8 @@ class GrpcTradesService extends TradesGrpc.TradesImplBase {
             var reply = ConfirmPaymentReceivedReply.newBuilder().build();
             responseObserver.onNext(reply);
             responseObserver.onCompleted();
-        } catch (IllegalStateException | IllegalArgumentException cause) {
-            var ex = new StatusRuntimeException(Status.UNKNOWN.withDescription(cause.getMessage()));
-            responseObserver.onError(ex);
-            throw ex;
+        } catch (Throwable cause) {
+            exceptionHandler.handleException(cause, responseObserver);
         }
     }
 
@@ -132,10 +125,8 @@ class GrpcTradesService extends TradesGrpc.TradesImplBase {
             var reply = KeepFundsReply.newBuilder().build();
             responseObserver.onNext(reply);
             responseObserver.onCompleted();
-        } catch (IllegalStateException | IllegalArgumentException cause) {
-            var ex = new StatusRuntimeException(Status.UNKNOWN.withDescription(cause.getMessage()));
-            responseObserver.onError(ex);
-            throw ex;
+        } catch (Throwable cause) {
+            exceptionHandler.handleException(cause, responseObserver);
         }
     }
 
@@ -143,14 +134,12 @@ class GrpcTradesService extends TradesGrpc.TradesImplBase {
     public void withdrawFunds(WithdrawFundsRequest req,
                               StreamObserver<WithdrawFundsReply> responseObserver) {
         try {
-            coreApi.withdrawFunds(req.getTradeId(), req.getAddress());
+            coreApi.withdrawFunds(req.getTradeId(), req.getAddress(), req.getMemo());
             var reply = WithdrawFundsReply.newBuilder().build();
             responseObserver.onNext(reply);
             responseObserver.onCompleted();
-        } catch (IllegalStateException | IllegalArgumentException cause) {
-            var ex = new StatusRuntimeException(Status.UNKNOWN.withDescription(cause.getMessage()));
-            responseObserver.onError(ex);
-            throw ex;
+        } catch (Throwable cause) {
+            exceptionHandler.handleException(cause, responseObserver);
         }
     }
 }

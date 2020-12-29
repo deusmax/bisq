@@ -29,9 +29,18 @@ class ColumnHeaderConstants {
     // such as COL_HEADER_CREATION_DATE, COL_HEADER_VOLUME and COL_HEADER_UUID, the
     // expected max data string length is accounted for.  In others, the column header length
     // are expected to be greater than any column value length.
-    static final String COL_HEADER_ADDRESS = padEnd("Address", 34, ' ');
+    static final String COL_HEADER_ADDRESS = padEnd("%-3s Address", 52, ' ');
     static final String COL_HEADER_AMOUNT = padEnd("BTC(min - max)", 24, ' ');
-    static final String COL_HEADER_BALANCE = padStart("Balance", 12, ' ');
+    static final String COL_HEADER_AVAILABLE_BALANCE = "Available Balance";
+    static final String COL_HEADER_AVAILABLE_CONFIRMED_BALANCE = "Available Confirmed Balance";
+    static final String COL_HEADER_UNCONFIRMED_CHANGE_BALANCE = "Unconfirmed Change Balance";
+    static final String COL_HEADER_RESERVED_BALANCE = "Reserved Balance";
+    static final String COL_HEADER_TOTAL_AVAILABLE_BALANCE = "Total Available Balance";
+    static final String COL_HEADER_LOCKED_BALANCE = "Locked Balance";
+    static final String COL_HEADER_LOCKED_FOR_VOTING_BALANCE = "Locked For Voting Balance";
+    static final String COL_HEADER_LOCKUP_BONDS_BALANCE = "Lockup Bonds Balance";
+    static final String COL_HEADER_UNLOCKING_BONDS_BALANCE = "Unlocking Bonds Balance";
+    static final String COL_HEADER_UNVERIFIED_BALANCE = "Unverified Balance";
     static final String COL_HEADER_CONFIRMATIONS = "Confirmations";
     static final String COL_HEADER_CREATION_DATE = padEnd("Creation Date (UTC)", 20, ' ');
     static final String COL_HEADER_CURRENCY = "Currency";
@@ -50,6 +59,16 @@ class ColumnHeaderConstants {
     static final String COL_HEADER_TRADE_SHORT_ID = "ID";
     static final String COL_HEADER_TRADE_TX_FEE = "Tx Fee(%-3s)";
     static final String COL_HEADER_TRADE_TAKER_FEE = "Taker Fee(%-3s)";
+    static final String COL_HEADER_TRADE_WITHDRAWAL_TX_ID = "Withdrawal TX ID";
+
+    static final String COL_HEADER_TX_ID = "Tx ID";
+    static final String COL_HEADER_TX_INPUT_SUM = "Tx Inputs (BTC)";
+    static final String COL_HEADER_TX_OUTPUT_SUM = "Tx Outputs (BTC)";
+    static final String COL_HEADER_TX_FEE = "Tx Fee (BTC)";
+    static final String COL_HEADER_TX_SIZE = "Tx Size (Bytes)";
+    static final String COL_HEADER_TX_IS_CONFIRMED = "Is Confirmed";
+    static final String COL_HEADER_TX_MEMO = "Memo";
+
     static final String COL_HEADER_VOLUME = padEnd("%-3s(min - max)", 15, ' ');
     static final String COL_HEADER_UUID = padEnd("ID", 52, ' ');
 }

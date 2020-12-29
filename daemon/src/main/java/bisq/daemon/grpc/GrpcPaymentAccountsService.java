@@ -19,11 +19,16 @@ package bisq.daemon.grpc;
 
 import bisq.core.api.CoreApi;
 import bisq.core.payment.PaymentAccount;
+import bisq.core.payment.payload.PaymentMethod;
 
 import bisq.proto.grpc.CreatePaymentAccountReply;
 import bisq.proto.grpc.CreatePaymentAccountRequest;
+import bisq.proto.grpc.GetPaymentAccountFormReply;
+import bisq.proto.grpc.GetPaymentAccountFormRequest;
 import bisq.proto.grpc.GetPaymentAccountsReply;
 import bisq.proto.grpc.GetPaymentAccountsRequest;
+import bisq.proto.grpc.GetPaymentMethodsReply;
+import bisq.proto.grpc.GetPaymentMethodsRequest;
 import bisq.proto.grpc.PaymentAccountsGrpc;
 
 import io.grpc.stub.StreamObserver;
@@ -36,33 +41,73 @@ import java.util.stream.Collectors;
 class GrpcPaymentAccountsService extends PaymentAccountsGrpc.PaymentAccountsImplBase {
 
     private final CoreApi coreApi;
+    private final GrpcExceptionHandler exceptionHandler;
 
     @Inject
-    public GrpcPaymentAccountsService(CoreApi coreApi) {
+    public GrpcPaymentAccountsService(CoreApi coreApi, GrpcExceptionHandler exceptionHandler) {
         this.coreApi = coreApi;
+        this.exceptionHandler = exceptionHandler;
     }
 
     @Override
     public void createPaymentAccount(CreatePaymentAccountRequest req,
                                      StreamObserver<CreatePaymentAccountReply> responseObserver) {
-        coreApi.createPaymentAccount(req.getPaymentMethodId(),
-                req.getAccountName(),
-                req.getAccountNumber(),
-                req.getCurrencyCode());
-        var reply = CreatePaymentAccountReply.newBuilder().build();
-        responseObserver.onNext(reply);
-        responseObserver.onCompleted();
+        try {
+            PaymentAccount paymentAccount = coreApi.createPaymentAccount(req.getPaymentAccountForm());
+            var reply = CreatePaymentAccountReply.newBuilder()
+                    .setPaymentAccount(paymentAccount.toProtoMessage())
+                    .build();
+            responseObserver.onNext(reply);
+            responseObserver.onCompleted();
+        } catch (Throwable cause) {
+            exceptionHandler.handleException(cause, responseObserver);
+        }
     }
 
     @Override
     public void getPaymentAccounts(GetPaymentAccountsRequest req,
                                    StreamObserver<GetPaymentAccountsReply> responseObserver) {
-        var paymentAccounts = coreApi.getPaymentAccounts().stream()
-                .map(PaymentAccount::toProtoMessage)
-                .collect(Collectors.toList());
-        var reply = GetPaymentAccountsReply.newBuilder()
-                .addAllPaymentAccounts(paymentAccounts).build();
-        responseObserver.onNext(reply);
-        responseObserver.onCompleted();
+        try {
+            var paymentAccounts = coreApi.getPaymentAccounts().stream()
+                    .map(PaymentAccount::toProtoMessage)
+                    .collect(Collectors.toList());
+            var reply = GetPaymentAccountsReply.newBuilder()
+                    .addAllPaymentAccounts(paymentAccounts).build();
+            responseObserver.onNext(reply);
+            responseObserver.onCompleted();
+        } catch (Throwable cause) {
+            exceptionHandler.handleException(cause, responseObserver);
+        }
+    }
+
+    @Override
+    public void getPaymentMethods(GetPaymentMethodsRequest req,
+                                  StreamObserver<GetPaymentMethodsReply> responseObserver) {
+        try {
+            var paymentMethods = coreApi.getFiatPaymentMethods().stream()
+                    .map(PaymentMethod::toProtoMessage)
+                    .collect(Collectors.toList());
+            var reply = GetPaymentMethodsReply.newBuilder()
+                    .addAllPaymentMethods(paymentMethods).build();
+            responseObserver.onNext(reply);
+            responseObserver.onCompleted();
+        } catch (Throwable cause) {
+            exceptionHandler.handleException(cause, responseObserver);
+        }
+    }
+
+    @Override
+    public void getPaymentAccountForm(GetPaymentAccountFormRequest req,
+                                      StreamObserver<GetPaymentAccountFormReply> responseObserver) {
+        try {
+            var paymentAccountFormJson = coreApi.getPaymentAccountForm(req.getPaymentMethodId());
+            var reply = GetPaymentAccountFormReply.newBuilder()
+                    .setPaymentAccountFormJson(paymentAccountFormJson)
+                    .build();
+            responseObserver.onNext(reply);
+            responseObserver.onCompleted();
+        } catch (Throwable cause) {
+            exceptionHandler.handleException(cause, responseObserver);
+        }
     }
 }

@@ -20,6 +20,7 @@ package bisq.seednode;
 import bisq.core.app.TorSetup;
 import bisq.core.app.misc.ExecutableForAppWithP2p;
 import bisq.core.app.misc.ModuleForAppWithP2p;
+import bisq.core.dao.state.DaoStateSnapshotService;
 
 import bisq.network.p2p.P2PService;
 import bisq.network.p2p.P2PServiceListener;
@@ -30,6 +31,9 @@ import bisq.common.UserThread;
 import bisq.common.app.AppModule;
 import bisq.common.app.Capabilities;
 import bisq.common.app.Capability;
+import bisq.common.app.DevEnv;
+import bisq.common.config.BaseCurrencyNetwork;
+import bisq.common.config.Config;
 import bisq.common.handlers.ResultHandler;
 
 import lombok.extern.slf4j.Slf4j;
@@ -37,7 +41,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class SeedNodeMain extends ExecutableForAppWithP2p {
     private static final long CHECK_CONNECTION_LOSS_SEC = 30;
-    private static final String VERSION = "1.5.0";
+    private static final String VERSION = "1.5.2";
     private SeedNode seedNode;
     private Timer checkConnectionLossTime;
 
@@ -96,6 +100,11 @@ public class SeedNodeMain extends ExecutableForAppWithP2p {
         super.applyInjector();
 
         seedNode.setInjector(injector);
+
+        if (DevEnv.isDaoActivated()) {
+            injector.getInstance(DaoStateSnapshotService.class).setDaoRequiresRestartHandler(() -> gracefulShutDown(() -> {
+            }));
+        }
     }
 
     @Override
@@ -147,6 +156,12 @@ public class SeedNodeMain extends ExecutableForAppWithP2p {
     }
 
     private void setupConnectionLossCheck() {
+        // For dev testing (usually on BTC_REGTEST) we don't want to get the seed shut
+        // down as it is normal that the seed is the only actively running node.
+        if (Config.baseCurrencyNetwork() == BaseCurrencyNetwork.BTC_REGTEST) {
+            return;
+        }
+
         if (checkConnectionLossTime != null) {
             return;
         }

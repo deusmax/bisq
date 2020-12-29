@@ -20,6 +20,7 @@ package bisq.core.api;
 import bisq.core.btc.model.AddressEntry;
 import bisq.core.btc.wallet.BtcWalletService;
 import bisq.core.offer.Offer;
+import bisq.core.offer.OfferUtil;
 import bisq.core.offer.takeoffer.TakeOfferModel;
 import bisq.core.trade.Tradable;
 import bisq.core.trade.Trade;
@@ -52,6 +53,7 @@ class CoreTradesService {
     private final CoreWalletsService coreWalletsService;
 
     private final BtcWalletService btcWalletService;
+    private final OfferUtil offerUtil;
     private final ClosedTradableManager closedTradableManager;
     private final TakeOfferModel takeOfferModel;
     private final TradeManager tradeManager;
@@ -61,6 +63,7 @@ class CoreTradesService {
     @Inject
     public CoreTradesService(CoreWalletsService coreWalletsService,
                              BtcWalletService btcWalletService,
+                             OfferUtil offerUtil,
                              ClosedTradableManager closedTradableManager,
                              TakeOfferModel takeOfferModel,
                              TradeManager tradeManager,
@@ -68,6 +71,7 @@ class CoreTradesService {
                              User user) {
         this.coreWalletsService = coreWalletsService;
         this.btcWalletService = btcWalletService;
+        this.offerUtil = offerUtil;
         this.closedTradableManager = closedTradableManager;
         this.takeOfferModel = takeOfferModel;
         this.tradeManager = tradeManager;
@@ -77,7 +81,13 @@ class CoreTradesService {
 
     void takeOffer(Offer offer,
                    String paymentAccountId,
+                   String takerFeeCurrencyCode,
                    Consumer<Trade> resultHandler) {
+        coreWalletsService.verifyWalletsAreAvailable();
+        coreWalletsService.verifyEncryptedWalletIsUnlocked();
+
+        offerUtil.maybeSetFeePaymentCurrencyPreference(takerFeeCurrencyCode);
+
         var paymentAccount = user.getPaymentAccount(paymentAccountId);
         if (paymentAccount == null)
             throw new IllegalArgumentException(format("payment account with id '%s' not found", paymentAccountId));
@@ -139,6 +149,9 @@ class CoreTradesService {
     }
 
     void keepFunds(String tradeId) {
+        coreWalletsService.verifyWalletsAreAvailable();
+        coreWalletsService.verifyEncryptedWalletIsUnlocked();
+
         verifyTradeIsNotClosed(tradeId);
         var trade = getOpenTrade(tradeId).orElseThrow(() ->
                 new IllegalArgumentException(format("trade with id '%s' not found", tradeId)));
@@ -146,8 +159,10 @@ class CoreTradesService {
         tradeManager.onTradeCompleted(trade);
     }
 
-    void withdrawFunds(String tradeId, String toAddress) {
-        // An encrypted wallet must be unlocked for this operation.
+    void withdrawFunds(String tradeId, String toAddress, String memo) {
+        coreWalletsService.verifyWalletsAreAvailable();
+        coreWalletsService.verifyEncryptedWalletIsUnlocked();
+
         verifyTradeIsNotClosed(tradeId);
         var trade = getOpenTrade(tradeId).orElseThrow(() ->
                 new IllegalArgumentException(format("trade with id '%s' not found", tradeId)));
@@ -162,20 +177,21 @@ class CoreTradesService {
         var receiverAmount = amount.subtract(fee);
 
         log.info(format("Withdrawing funds received from trade %s:"
-                        + "%n From %s%n To %s%n Amt %s%n Tx Fee %s%n Receiver Amt %s",
+                        + "%n From %s%n To %s%n Amt %s%n Tx Fee %s%n Receiver Amt %s%n Memo %s%n",
                 tradeId,
                 fromAddressEntry.getAddressString(),
                 toAddress,
                 amount.toFriendlyString(),
                 fee.toFriendlyString(),
-                receiverAmount.toFriendlyString()));
-
+                receiverAmount.toFriendlyString(),
+                memo));
         tradeManager.onWithdrawRequest(
                 toAddress,
                 amount,
                 fee,
                 coreWalletsService.getKey(),
                 trade,
+                memo.isEmpty() ? null : memo,
                 () -> {
                 },
                 (errorMessage, throwable) -> {
@@ -185,10 +201,14 @@ class CoreTradesService {
     }
 
     String getTradeRole(String tradeId) {
+        coreWalletsService.verifyWalletsAreAvailable();
+        coreWalletsService.verifyEncryptedWalletIsUnlocked();
         return tradeUtil.getRole(getTrade(tradeId));
     }
 
     Trade getTrade(String tradeId) {
+        coreWalletsService.verifyWalletsAreAvailable();
+        coreWalletsService.verifyEncryptedWalletIsUnlocked();
         return getOpenTrade(tradeId).orElseGet(() ->
                 getClosedTrade(tradeId).orElseThrow(() ->
                         new IllegalArgumentException(format("trade with id '%s' not found", tradeId))

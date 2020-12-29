@@ -44,6 +44,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import org.jetbrains.annotations.NotNull;
@@ -95,6 +96,7 @@ public class FeeService {
     private final IntegerProperty feeUpdateCounter = new SimpleIntegerProperty(0);
     private long txFeePerVbyte = BTC_DEFAULT_TX_FEE;
     private Map<String, Long> timeStampMap;
+    @Getter
     private long lastRequest;
     private long minFeePerVByte;
     private long epochInSecondAtLastRequest;
@@ -135,6 +137,11 @@ public class FeeService {
     }
 
     public void requestFees(@Nullable Runnable resultHandler, @Nullable FaultHandler faultHandler) {
+        if (feeProvider.getHttpClient().hasPendingRequest()) {
+            log.warn("We have a pending request open. We ignore that request. httpClient {}", feeProvider.getHttpClient());
+            return;
+        }
+
         long now = Instant.now().getEpochSecond();
         // We all requests only each 2 minutes
         if (now - lastRequest > MIN_PAUSE_BETWEEN_REQUESTS_IN_MIN * 60) {
